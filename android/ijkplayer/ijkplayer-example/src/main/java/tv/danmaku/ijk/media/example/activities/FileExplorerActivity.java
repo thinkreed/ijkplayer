@@ -18,6 +18,7 @@
 package tv.danmaku.ijk.media.example.activities;
 
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentTransaction;
 import android.text.TextUtils;
@@ -34,66 +35,80 @@ import tv.danmaku.ijk.media.example.eventbus.FileExplorerEvents;
 import tv.danmaku.ijk.media.example.fragments.FileListFragment;
 
 public class FileExplorerActivity extends AppActivity {
-    private Settings mSettings;
+  private Settings mSettings;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+  @Override protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
 
-        if (mSettings == null) {
-            mSettings = new Settings(this);
-        }
+    createSettingsIfNeed();
 
-        String lastDirectory = mSettings.getLastDirectory();
-        if (!TextUtils.isEmpty(lastDirectory) && new File(lastDirectory).isDirectory())
-            doOpenDirectory(lastDirectory, false);
-        else
-            doOpenDirectory("/", false);
+    String lastDirectory = mSettings.getLastDirectory();
+    if (isDirectoryValid(lastDirectory)) {
+      displayDirectory(lastDirectory, false);
+    } else {
+      displayDirectory("/", false);
+    }
+  }
+
+  private boolean isDirectoryValid(String lastDirectory) {
+    return !TextUtils.isEmpty(lastDirectory) && new File(lastDirectory).isDirectory();
+  }
+
+  private void createSettingsIfNeed() {
+    if (mSettings == null) {
+      mSettings = new Settings(this);
+    }
+  }
+
+  @Override protected void onResume() {
+    super.onResume();
+
+    FileExplorerEvents.getBus().register(this);
+  }
+
+  @Override protected void onPause() {
+    super.onPause();
+
+    FileExplorerEvents.getBus().unregister(this);
+  }
+
+  private void displayDirectory(String path, boolean addToBackStack) {
+    Fragment newFragment = FileListFragment.newInstance(path);
+    FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
+
+    transaction.replace(R.id.body, newFragment);
+
+    if (addToBackStack) transaction.addToBackStack(null);
+    transaction.commit();
+  }
+
+  @Subscribe public void onClickFile(FileExplorerEvents.OnClickFile event) {
+    File f = event.mFile;
+    f = ensureFileExists(f);
+
+    if (f.isDirectory()) {
+      mSettings.setLastDirectory(f.toString());
+      displayDirectory(f.toString(), true);
+      return;
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-
-        FileExplorerEvents.getBus().register(this);
+    if (isMediaFile(f)) {
+      VideoActivity.intentTo(this, f.getPath(), f.getName());
     }
+  }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-
-        FileExplorerEvents.getBus().unregister(this);
+  @NonNull private File ensureFileExists(File f) {
+    try {
+      f = f.getAbsoluteFile();
+      f = f.getCanonicalFile();
+      if (TextUtils.isEmpty(f.toString())) f = new File("/");
+    } catch (IOException e) {
+      e.printStackTrace();
     }
+    return f;
+  }
 
-    private void doOpenDirectory(String path, boolean addToBackStack) {
-        Fragment newFragment = FileListFragment.newInstance(path);
-        FragmentTransaction transaction = getSupportFragmentManager().beginTransaction();
-
-        transaction.replace(R.id.body, newFragment);
-
-        if (addToBackStack)
-            transaction.addToBackStack(null);
-        transaction.commit();
-    }
-
-    @Subscribe
-    public void onClickFile(FileExplorerEvents.OnClickFile event) {
-        File f = event.mFile;
-        try {
-            f = f.getAbsoluteFile();
-            f = f.getCanonicalFile();
-            if (TextUtils.isEmpty(f.toString()))
-                f = new File("/");
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
-        if (f.isDirectory()) {
-            String path = f.toString();
-            mSettings.setLastDirectory(path);
-            doOpenDirectory(path, true);
-        } else if (f.exists()) {
-            VideoActivity.intentTo(this, f.getPath(), f.getName());
-        }
-    }
+  private boolean isMediaFile(File f) {
+    return f.exists();
+  }
 }
